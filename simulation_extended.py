@@ -20,11 +20,11 @@ class Simulation():
     
     def __init__(
         self,
-        livetime =1.0*u.hr,
+        livetime = 28.0*u.min,
         wobble_offset = 0.7*u.deg,
         skydir = SkyCoord(0, 0, unit="deg", frame="galactic"),
         mean_bkg = 1.0,
-        sigma_bkg = 0.2,
+        sigma_bkg = 0.15,
     ):
         
         
@@ -39,6 +39,7 @@ class Simulation():
     def get_irf(self):
         data_store = DataStore.from_dir("$GAMMAPY_DATA/hess-dl3-dr1")
         obs = data_store.obs(47828)
+        # Using IRF for 30 deg zenith angle - can be changed later
         irfs = {'aeff': obs.aeff,
             'edisp': obs.edisp,
             'psf': obs.psf,
@@ -46,12 +47,12 @@ class Simulation():
         return irfs
     
     def create_empty(self, name):
-        energy_reco = MapAxis.from_energy_bounds(energy_min=300.0*u.GeV, 
-                                                 energy_max=10.0*u.TeV, nbin=10,
+        energy_reco = MapAxis.from_energy_bounds(energy_min=1.0*u.TeV,
+                                                 energy_max=10.0*u.TeV, nbin=5,
                                                 name='energy')
         geom = WcsGeom.create(skydir=self.skydir,
-                              binsz=0.05,
-                              width=(8, 8),
+                              binsz=0.02,
+                              width=(7, 7),
                               frame="galactic",
                               axes=[energy_reco],
                               )
@@ -66,8 +67,12 @@ class Simulation():
         spatial_model.lat_0.value = self.skydir.galactic.b.value
         spatial_model.sigma.value = sigma
         spectral_model = PowerLaw2SpectralModel()
+
         amplitude = A0 * sigma * sigma
         spectral_model.amplitude.value = amplitude
+        spectral_model.index.value = 2.3
+        spectral_model.emin.quantity = 1.0*u.TeV
+        spectral_model.emax.quantity = 10.0 * u.TeV
         model_simu = SkyModel(spatial_model=spatial_model,
                               spectral_model=spectral_model,
                                 name="model-simu",
@@ -86,34 +91,23 @@ class Simulation():
         
         dataset = maker.run(empty, obs)
         dataset = maker_safe_mask.run(dataset, obs)
-        bkg_model = FoVBackgroundModel(dataset_name=dataset.name)
-        
-        dataset.models = Models([bkg_model,models])
+
+        dataset.models = Models([models])
         
         
         #fluctuate the background - gaussian fluctuations
         bkg_factor = np.random.normal(self.mean_bkg, self.sigma_bkg)
         while bkg_factor<0.0:
             bkg_factor = np.random.normal(self.mean_bkg, self.sigma_bkg)
-        dataset.models[0].spectral_model.norm.value = bkg_factor
+
+        dataset.background.data = bkg_factor * dataset.background.data
         self.bkg_norms.append(bkg_factor)
-        
-        #TODO: Discuss correct behaviour
-        
-        #Poission fluctuate only the source
-        """
-        random_state = get_random_state(random_state)
-        npred = dataset.npred_signal() 
-        npred.data = random_state.poisson(npred.data)
-        dataset.counts = npred + dataset.background
-        """
-        
         
         #Poission fluctuate source + background
         dataset.fake()
         
         
-        dataset.models = Models([bkg_model]) #remove the model on the dataset
+        dataset.models = None #remove the model on the dataset
         
         return dataset
     
