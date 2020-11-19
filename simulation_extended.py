@@ -108,6 +108,7 @@ class Simulation():
         
         
         dataset.models = None #remove the model on the dataset
+        dataset.background.data /= bkg_factor # restore the old background
         
         return dataset
     
